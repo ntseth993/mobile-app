@@ -23,7 +23,7 @@ import com.example.calltranslator.service.TranslationService
 import kotlinx.coroutines.*
 
 enum class CallState { IDLE, CONNECTING, CONNECTED, WEAK_CONNECTION, RECONNECTING, DISCONNECTED }
-enum class PipelineStatus { STANDBY, LISTENING, TRANSLATING, SPEAKING }
+enum class PipelineStatus { STANDBY, LISTENING, TRANSLATING, SPEAKING, AUTO_DETECTING }
 
 class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
 
@@ -98,6 +98,7 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
     val activeVoiceModel: StateFlow<String> = _activeVoiceModel
 
     private var audioJob: Job? = null
+    private var autoDetectJob: Job? = null
 
     // Real conversational response lookup maps
     private val dictionary = mapOf(
@@ -197,16 +198,16 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
         } else {
             _pipelineStatus.value = PipelineStatus.LISTENING
             startWaveOscillations()
-            
+
             viewModelScope.launch {
                 speechRecognitionService.startSpeechRecognition(_myLang.value).collect { recognizedText ->
                     if (recognizedText.isNotBlank()) {
                         _pipelineStatus.value = PipelineStatus.TRANSLATING
                         speechRecognitionService.stopSpeechRecognition()
-                        
+
                         val translation = translateText(recognizedText, _remoteLang.value, _myLang.value)
                         injectLocalSpeech(recognizedText, translation)
-                        
+
                         _pipelineStatus.value = PipelineStatus.SPEAKING
                         textToSpeechService.speak(translation, _remoteLang.value).collect { success ->
                             _pipelineStatus.value = PipelineStatus.STANDBY
@@ -215,6 +216,40 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Simulates receiving audio from remote caller and auto-detects their language
+     * then translates to user's language
+     */
+    fun simulateRemoteAudio(rawAudio: String) {
+        autoDetectJob?.cancel()
+        autoDetectJob = viewModelScope.launch {
+            _pipelineStatus.value = PipelineStatus.AUTO_DETECTING
+
+            try {
+                // Step 1: Detect caller's language
+                val detectedLanguage = detectLanguage(rawAudio)
+                _remoteLang.value = languageCodeToName(detectedLanguage)
+
+                // Step 2: Translate to user's language
+                _pipelineStatus.value = PipelineStatus.TRANSLATING
+                val userLanguageCode = languageNameToCode(_myLang.value)
+                val translatedText = translateText(rawAudio, userLanguageCode, detectedLanguage)
+
+                // Step 3: Add to transcript
+                injectRemoteMessage(rawAudio, translatedText)
+
+                // Step 4: Speak translation to user
+                _pipelineStatus.value = PipelineStatus.SPEAKING
+                textToSpeechService.speak(translatedText, _myLang.value).collect { success ->
+                    _pipelineStatus.value = PipelineStatus.STANDBY
+                }
+
+            } catch (e: Exception) {
+                _pipelineStatus.value = PipelineStatus.STANDBY
             }
         }
     }
@@ -238,20 +273,13 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
             add(TranscriptMessage("You", original, translated, timeStr, true))
         }
         _transcript.value = newList
-
-        if (original.lowercase().trim() == "meze neza. uri he?") {
-            viewModelScope.launch {
-                delay(3000)
-                injectRemoteMessage("I am fine. Where are you?", "Meze neza. Uri he?")
-            }
-        }
     }
 
     private fun injectRemoteMessage(original: String, translated: String) {
         val now = LocalDateTime.now()
         val timeStr = String.format("%02d:%02d", now.hour, now.minute)
         val newList = _transcript.value.toMutableList().apply {
-            add(TranscriptMessage(_remoteUser.value?.name ?: "John", original, translated, timeStr, false))
+            add(TranscriptMessage(_remoteUser.value?.name ?: "Caller", original, translated, timeStr, false))
         }
         _transcript.value = newList
     }
@@ -268,6 +296,7 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
             _remoteUser.value = null
             _pipelineStatus.value = PipelineStatus.STANDBY
             audioJob?.cancel()
+            autoDetectJob?.cancel()
         }
     }
 
@@ -286,6 +315,54 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
             translationService.translateText(text, targetLanguage, sourceLanguage)
         } catch (e: Exception) {
             text
+        }
+    }
+
+    // Convert language code to language name
+    private fun languageCodeToName(code: String): String {
+        return when (code.lowercase()) {
+            "en" -> "English"
+            "fr" -> "French"
+            "es" -> "Spanish"
+            "de" -> "German"
+            "rw" -> "Kinyarwanda"
+            "sw" -> "Swahili"
+            "ar" -> "Arabic"
+            "zh" -> "Chinese"
+            "ja" -> "Japanese"
+            "ko" -> "Korean"
+            "ru" -> "Russian"
+            "pt" -> "Portuguese"
+            "it" -> "Italian"
+            "nl" -> "Dutch"
+            "pl" -> "Polish"
+            "tr" -> "Turkish"
+            "hi" -> "Hindi"
+            else -> "English"
+        }
+    }
+
+    // Convert language name to language code
+    private fun languageNameToCode(name: String): String {
+        return when (name.lowercase()) {
+            "english" -> "en"
+            "french" -> "fr"
+            "spanish" -> "es"
+            "german" -> "de"
+            "kinyarwanda" -> "rw"
+            "swahili" -> "sw"
+            "arabic" -> "ar"
+            "chinese" -> "zh"
+            "japanese" -> "ja"
+            "korean" -> "ko"
+            "russian" -> "ru"
+            "portuguese" -> "pt"
+            "italian" -> "it"
+            "dutch" -> "nl"
+            "polish" -> "pl"
+            "turkish" -> "tr"
+            "hindi" -> "hi"
+            else -> "en"
         }
     }
 
@@ -328,5 +405,7 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
         super.onCleared()
         languageDetectionService.close()
         translationService.close()
+        audioJob?.cancel()
+        autoDetectJob?.cancel()
     }
 }
