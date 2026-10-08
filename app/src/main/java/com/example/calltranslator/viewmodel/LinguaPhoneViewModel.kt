@@ -70,6 +70,9 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
     private val _remoteLang = MutableStateFlow("English")
     val remoteLang: StateFlow<String> = _remoteLang
 
+    private val _detectedRemoteLanguage = MutableStateFlow("Auto-detecting...")
+    val detectedRemoteLanguage: StateFlow<String> = _detectedRemoteLanguage
+
     private val _isMuted = MutableStateFlow(false)
     val isMuted: StateFlow<Boolean> = _isMuted
 
@@ -166,6 +169,7 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
             _callState.value = CallState.CONNECTING
             _remoteUser.value = UserModel(phoneNumber, phoneNumber, "", "English", "👤")
             _transcript.value = emptyList()
+            _detectedRemoteLanguage.value = "Auto-detecting..."
         }
     }
 
@@ -233,6 +237,7 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
                 // Step 1: Detect caller's language
                 val detectedLanguage = detectLanguage(rawAudio)
                 _remoteLang.value = languageCodeToName(detectedLanguage)
+                _detectedRemoteLanguage.value = languageCodeToName(detectedLanguage)
 
                 // Step 2: Translate to user's language
                 _pipelineStatus.value = PipelineStatus.TRANSLATING
@@ -250,6 +255,7 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
 
             } catch (e: Exception) {
                 _pipelineStatus.value = PipelineStatus.STANDBY
+                _detectedRemoteLanguage.value = "Auto-detecting..."
             }
         }
     }
@@ -295,6 +301,7 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
             _callState.value = CallState.IDLE
             _remoteUser.value = null
             _pipelineStatus.value = PipelineStatus.STANDBY
+            _detectedRemoteLanguage.value = "Auto-detecting..."
             audioJob?.cancel()
             autoDetectJob?.cancel()
         }
