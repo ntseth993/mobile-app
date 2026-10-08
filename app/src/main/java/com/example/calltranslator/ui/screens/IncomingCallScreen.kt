@@ -25,6 +25,9 @@ import com.example.calltranslator.viewmodel.LinguaPhoneViewModel
 fun IncomingCallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
     val remoteUser by viewModel.remoteUser.collectAsState()
     
+    // Get real call from InCallService
+    val activeCall = com.example.calltranslator.service.CallInCallService.activeCall.collectAsState()
+    
     // Pulse animation for avatar
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val scale by infiniteTransition.animateFloat(
@@ -47,6 +50,10 @@ fun IncomingCallScreen(navController: NavController, viewModel: LinguaPhoneViewM
         ),
         label = "text_blink"
     )
+    
+    // Extract caller info from real call
+    val callerNumber = activeCall.value?.details?.handle?.schemeSpecificPart ?: remoteUser?.uid ?: ""
+    val callerName = remoteUser?.name ?: callerNumber
     
     Box(
         modifier = Modifier
@@ -96,7 +103,7 @@ fun IncomingCallScreen(navController: NavController, viewModel: LinguaPhoneViewM
             
             // Caller name
             Text(
-                text = remoteUser?.name ?: "Unknown",
+                text = callerName,
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
@@ -104,7 +111,7 @@ fun IncomingCallScreen(navController: NavController, viewModel: LinguaPhoneViewM
             
             // Phone number
             Text(
-                text = remoteUser?.uid ?: "",
+                text = callerNumber,
                 fontSize = 20.sp,
                 color = Color.White.copy(alpha = 0.7f)
             )
@@ -133,6 +140,7 @@ fun IncomingCallScreen(navController: NavController, viewModel: LinguaPhoneViewM
                 ) {
                     IconButton(
                         onClick = {
+                            activeCall.value?.disconnect()
                             viewModel.endCall()
                             navController.popBackStack()
                         },
@@ -163,9 +171,10 @@ fun IncomingCallScreen(navController: NavController, viewModel: LinguaPhoneViewM
                 ) {
                     IconButton(
                         onClick = {
+                            activeCall.value?.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY)
                             viewModel.startCall(remoteUser ?: com.example.calltranslator.model.UserModel(
-                                uid = "unknown",
-                                name = "Unknown",
+                                uid = callerNumber,
+                                name = callerName,
                                 email = "",
                                 preferredLanguage = "English",
                                 avatarUrl = "👤"

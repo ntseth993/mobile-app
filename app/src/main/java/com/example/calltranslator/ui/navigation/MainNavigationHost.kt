@@ -3,6 +3,8 @@ package com.example.calltranslator.ui.navigation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -12,12 +14,19 @@ import com.example.calltranslator.ui.screens.*
 import com.example.calltranslator.viewmodel.LinguaPhoneViewModel
 
 @Composable
-fun MainNavigationHost(viewModel: LinguaPhoneViewModel) {
+fun MainNavigationHost(viewModel: LinguaPhoneViewModel, pendingPhoneNumber: String? = null) {
     val navController = rememberNavController()
+    val isAuthenticated by viewModel.isAuthenticated.collectAsState()
+
+    val startDestination = when {
+        pendingPhoneNumber != null -> Screen.Phone.route
+        isAuthenticated -> Screen.Phone.route
+        else -> Screen.Splash.route
+    }
 
     NavHost(
         navController = navController,
-        startDestination = Screen.Splash.route
+        startDestination = startDestination
     ) {
         composable(Screen.Splash.route) {
             SplashScreen(navController = navController)
@@ -32,7 +41,7 @@ fun MainNavigationHost(viewModel: LinguaPhoneViewModel) {
         // Main screens with bottom navigation
         composable(Screen.Phone.route) {
             MainScreenWithBottomBar(navController, viewModel) {
-                PhoneScreen(navController = navController, viewModel = viewModel)
+                PhoneScreen(navController = navController, viewModel = viewModel, initialNumber = pendingPhoneNumber)
             }
         }
         composable(Screen.Contacts.route) {

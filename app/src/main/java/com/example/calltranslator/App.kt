@@ -11,12 +11,12 @@ import com.example.calltranslator.ui.theme.CallTranslatorTheme
 import com.example.calltranslator.viewmodel.LinguaPhoneViewModel
 
 @Composable
-fun App(viewModel: LinguaPhoneViewModel) {
+fun App(viewModel: LinguaPhoneViewModel, pendingPhoneNumber: String? = null) {
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     
     CallTranslatorTheme(darkTheme = isDarkMode) {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-            MainNavigationHost(viewModel = viewModel)
+            MainNavigationHost(viewModel = viewModel, pendingPhoneNumber = pendingPhoneNumber)
         }
     }
 }

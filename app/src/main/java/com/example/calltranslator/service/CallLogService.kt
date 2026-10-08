@@ -6,6 +6,9 @@ import android.database.Cursor
 import android.provider.CallLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class CallLogEntry(
     val id: String,
@@ -13,11 +16,18 @@ data class CallLogEntry(
     val phoneNumber: String,
     val type: CallType,
     val timestamp: Long,
-    val duration: Long
+    val duration: Long,
+    val date: String = formatTimestamp(timestamp)
 )
 
 enum class CallType {
     INCOMING, OUTGOING, MISSED, VOICEMAIL, REJECTED, BLOCKED
+}
+
+fun formatTimestamp(timestamp: Long): String {
+    val date = Date(timestamp)
+    val format = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
+    return format.format(date)
 }
 
 class CallLogService(private val context: Context) {
@@ -31,7 +41,7 @@ class CallLogService(private val context: Context) {
             null,
             null,
             null,
-            CallLog.Calls.DATE + " DESC LIMIT $limit"
+            CallLog.Calls.DATE + " DESC"
         )
         
         cursor?.use {
@@ -42,7 +52,8 @@ class CallLogService(private val context: Context) {
             val dateIndex = it.getColumnIndex(CallLog.Calls.DATE)
             val durationIndex = it.getColumnIndex(CallLog.Calls.DURATION)
             
-            while (it.moveToNext()) {
+            var count = 0
+            while (it.moveToNext() && count < limit) {
                 val id = it.getString(idIndex)
                 val name = it.getString(nameIndex)
                 val number = it.getString(numberIndex) ?: ""
@@ -61,6 +72,7 @@ class CallLogService(private val context: Context) {
                 }
                 
                 calls.add(CallLogEntry(id, name, number, callType, date, duration))
+                count++
             }
         }
         

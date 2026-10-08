@@ -4,9 +4,13 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,164 +23,249 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.calltranslator.model.UserModel
 import com.example.calltranslator.service.Contact
+import com.example.calltranslator.service.SimCard
+import com.example.calltranslator.ui.components.SimSelectionDialog
 import com.example.calltranslator.ui.theme.*
 import com.example.calltranslator.ui.navigation.Screen
 import com.example.calltranslator.viewmodel.LinguaPhoneViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PhoneScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
+fun PhoneScreen(navController: NavController, viewModel: LinguaPhoneViewModel, initialNumber: String? = null) {
+    val context = LocalContext.current
     val isDarkMode by viewModel.isDarkMode.collectAsState()
+    val clipboardManager = LocalClipboardManager.current
 
-    var phoneNumber by remember { mutableStateOf("") }
-    var contacts by remember { mutableStateOf<List<Contact>>(emptyList()) }
+    var phoneNumber by remember { mutableStateOf(initialNumber ?: "") }
     var showContacts by remember { mutableStateOf(false) }
-    var isTranslating by remember { mutableStateOf(false) }
+    var showSimSelection by remember { mutableStateOf(false) }
+    var recentCalls by remember { mutableStateOf<List<com.example.calltranslator.service.CallLogEntry>>(emptyList()) }
+    var contacts by remember { mutableStateOf<List<Contact>>(emptyList()) }
+    var showContextMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         contacts = viewModel.loadContacts()
+        recentCalls = viewModel.loadCallLogs()
     }
 
     val filteredContacts = remember(phoneNumber, contacts) {
         if (phoneNumber.isEmpty()) emptyList()
-        else contacts.filter { 
-            it.name.contains(phoneNumber, ignoreCase = true) || 
-            it.phoneNumber.contains(phoneNumber, ignoreCase = true) 
-        }
-    }
-
-    var myLang by remember { mutableStateOf("Kinyarwanda") }
-    var remoteLang by remember { mutableStateOf("English") }
-
-    // AI Feature: Auto-detect language from input
-    LaunchedEffect(phoneNumber) {
-        if (phoneNumber.length > 3) {
-            isTranslating = true
-            kotlinx.coroutines.delay(500)
-            isTranslating = false
+        else contacts.filter {
+            it.name.contains(phoneNumber, ignoreCase = true) ||
+            it.phoneNumber.contains(phoneNumber, ignoreCase = true)
         }
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F0F1A))
+            .background(if (isDarkMode) Color(0xFF0F0F1A) else Color(0xFFF5F5F5))
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // AI Status Indicator
-        if (isTranslating) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+        // Recent calls section
+        if (recentCalls.isNotEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = if (isDarkMode) Color(0xFF1A1A2E) else Color.White)
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = Color(0xFF00D4FF)
-                )
-                Text(
-                    text = "AI Detecting...",
-                    fontSize = 12.sp,
-                    color = Color(0xFF00D4FF),
-                    fontWeight = FontWeight.Medium
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Recent Calls",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isDarkMode) Color.White else Color.Black
+                        )
+                        TextButton(onClick = { navController.navigate(Screen.Recents.route) }) {
+                            Text(
+                                text = "See All",
+                                fontSize = 12.sp,
+                                color = Color(0xFF00D4FF)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    recentCalls.take(3).forEach { call ->
+                        RecentCallItem(
+                            call = call,
+                            onClick = {
+                                phoneNumber = call.phoneNumber
+                            },
+                            isDarkMode = isDarkMode
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                }
             }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
         }
 
-        // Phone number display with AI suggestions
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Phone number display (above dial pad)
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E)),
+            colors = CardDefaults.cardColors(containerColor = if (isDarkMode) Color(0xFF1A1A2E) else Color.White),
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Row(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = formatPhoneNumber(phoneNumber),
-                    fontSize = 36.sp,
-                    fontWeight = FontWeight.Light,
-                    color = Color.White,
-                    textAlign = TextAlign.Center
-                )
+                // Scrollable phone number with long press for context menu
+                val scrollState = rememberScrollState()
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(scrollState)
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onLongPress = {
+                                    showContextMenu = true
+                                }
+                            )
+                        }
+                ) {
+                    Text(
+                        text = phoneNumber,
+                        fontSize = 48.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isDarkMode) Color.White else Color.Black,
+                        textAlign = TextAlign.Start,
+                        maxLines = 1,
+                        overflow = TextOverflow.Visible
+                    )
+                }
                 
-                // AI-powered contact suggestion
-                if (phoneNumber.length >= 3 && filteredContacts.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            Icons.Rounded.AutoAwesome,
-                            contentDescription = null,
-                            tint = Color(0xFF00D4FF),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = "AI Suggestion: ${filteredContacts.first().name}",
-                            fontSize = 12.sp,
-                            color = Color(0xFF00D4FF)
-                        )
+                // Copy button
+                IconButton(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(phoneNumber))
+                    },
+                    enabled = phoneNumber.isNotEmpty()
+                ) {
+                    Icon(
+                        Icons.Rounded.ContentCopy,
+                        contentDescription = "Copy",
+                        tint = if (phoneNumber.isNotEmpty()) (if (isDarkMode) Color.White else Color.Black) else Color.Gray,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                
+                // Paste button
+                IconButton(
+                    onClick = {
+                        val clipboardText = clipboardManager.getText()?.text ?: ""
+                        if (clipboardText.isNotEmpty()) {
+                            phoneNumber += clipboardText.filter { it.isDigit() || it == '+' || it == '-' || it == ' ' || it == '(' || it == ')' }
+                        }
                     }
+                ) {
+                    Icon(
+                        Icons.Rounded.ContentPaste,
+                        contentDescription = "Paste",
+                        tint = if (isDarkMode) Color.White else Color.Black,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                
+                // Delete button inline with number
+                IconButton(
+                    onClick = {
+                        if (phoneNumber.isNotEmpty()) {
+                            phoneNumber = phoneNumber.dropLast(1)
+                        }
+                    },
+                    enabled = phoneNumber.isNotEmpty()
+                ) {
+                    Icon(
+                        Icons.Rounded.Backspace,
+                        contentDescription = "Delete",
+                        tint = if (phoneNumber.isNotEmpty()) (if (isDarkMode) Color.White else Color.Black) else Color.Gray,
+                        modifier = Modifier.size(32.dp)
+                    )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Language selector with AI translation status
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E))
+        // Context menu for phone number
+        DropdownMenu(
+            expanded = showContextMenu,
+            onDismissRequest = { showContextMenu = false },
+            modifier = Modifier.background(if (isDarkMode) Color(0xFF1A1A2E) else Color.White)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ModernLanguageChip(
-                    label = myLang,
-                    flag = "🇷🇼",
-                    selected = true,
-                    onClick = { }
-                )
-                Icon(
-                    Icons.Rounded.ArrowForward,
-                    contentDescription = null,
-                    tint = Color(0xFF00D4FF)
-                )
-                ModernLanguageChip(
-                    label = remoteLang,
-                    flag = "🇬🇧",
-                    selected = true,
-                    onClick = { }
-                )
-            }
+            DropdownMenuItem(
+                text = { Text("Copy", color = if (isDarkMode) Color.White else Color.Black) },
+                onClick = {
+                    clipboardManager.setText(AnnotatedString(phoneNumber))
+                    showContextMenu = false
+                },
+                leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null) }
+            )
+            DropdownMenuItem(
+                text = { Text("Paste", color = if (isDarkMode) Color.White else Color.Black) },
+                onClick = {
+                    val clipboardText = clipboardManager.getText()?.text ?: ""
+                    if (clipboardText.isNotEmpty()) {
+                        phoneNumber += clipboardText.filter { it.isDigit() || it == '+' || it == '-' || it == ' ' || it == '(' || it == ')' }
+                    }
+                    showContextMenu = false
+                },
+                leadingIcon = { Icon(Icons.Rounded.ContentPaste, contentDescription = null) }
+            )
+            DropdownMenuItem(
+                text = { Text("Select All", color = if (isDarkMode) Color.White else Color.Black) },
+                onClick = {
+                    // Select all - just highlight the number (visual feedback)
+                    showContextMenu = false
+                },
+                leadingIcon = { Icon(Icons.Rounded.SelectAll, contentDescription = null) }
+            )
+            DropdownMenuItem(
+                text = { Text("Clear", color = if (isDarkMode) Color.White else Color.Black) },
+                onClick = {
+                    phoneNumber = ""
+                    showContextMenu = false
+                },
+                leadingIcon = { Icon(Icons.Rounded.Clear, contentDescription = null) }
+            )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Modern dial pad
         ModernDialPad(
             onNumberClick = { digit ->
-                if (phoneNumber.length < 15) {
+                if (phoneNumber.length < 100) {
                     phoneNumber += digit
                 }
             },
@@ -184,22 +273,16 @@ fun PhoneScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                 if (phoneNumber.isNotEmpty()) {
                     phoneNumber = phoneNumber.dropLast(1)
                 }
-            }
+            },
+            isDarkMode = isDarkMode
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Modern call button with gradient
-        val scale by animateFloatAsState(
-            targetValue = if (phoneNumber.isNotEmpty()) 1f else 0.9f,
-            animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
-            label = "call_button"
-        )
-
+        // Call button centered
         Box(
             modifier = Modifier
                 .size(72.dp)
-                .scale(scale)
                 .clip(CircleShape)
                 .background(
                     Brush.linearGradient(
@@ -212,16 +295,20 @@ fun PhoneScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                 .clickable(
                     enabled = phoneNumber.isNotEmpty(),
                     onClick = {
-                        viewModel.updateLanguages(myLang, remoteLang)
-                        val contact = UserModel(
-                            uid = phoneNumber,
-                            name = phoneNumber,
-                            email = "",
-                            preferredLanguage = remoteLang,
-                            avatarUrl = "📞"
-                        )
-                        viewModel.startCall(contact)
-                        navController.navigate(Screen.Call.route)
+                        if (!viewModel.isDefaultDialer()) {
+                            val roleIntent = viewModel.requestDefaultDialerRole()
+                            roleIntent?.let {
+                                context.startActivity(it)
+                            }
+                        } else {
+                            val availableSims = viewModel.getAvailableSims()
+                            if (availableSims.size > 1) {
+                                showSimSelection = true
+                            } else {
+                                viewModel.startCall(phoneNumber, availableSims.firstOrNull())
+                                navController.navigate(Screen.Call.route)
+                            }
+                        }
                     }
                 ),
             contentAlignment = Alignment.Center
@@ -259,32 +346,49 @@ fun PhoneScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
             }
         }
     }
+
+    // SIM Selection Dialog
+    if (showSimSelection) {
+        val availableSims = viewModel.getAvailableSims()
+        SimSelectionDialog(
+            sims = availableSims,
+            onSimSelected = { sim ->
+                viewModel.startCall(phoneNumber, sim)
+                showSimSelection = false
+                navController.navigate(Screen.Call.route)
+            },
+            onDismiss = { showSimSelection = false }
+        )
+    }
 }
 
 @Composable
 fun ModernDialPad(
     onNumberClick: (String) -> Unit,
-    onDeleteClick: () -> Unit
+    onDeleteClick: () -> Unit,
+    isDarkMode: Boolean
 ) {
     val buttons = listOf(
-        listOf("1", "2", "3"),
-        listOf("4", "5", "6"),
-        listOf("7", "8", "9"),
-        listOf("*", "0", "#")
+        listOf("1" to "", "2" to "ABC", "3" to "DEF"),
+        listOf("4" to "GHI", "5" to "JKL", "6" to "MNO"),
+        listOf("7" to "PQRS", "8" to "TUV", "9" to "WXYZ"),
+        listOf("*" to "", "0" to "+", "#" to "")
     )
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         buttons.forEach { row ->
             Row(
-                horizontalArrangement = Arrangement.spacedBy(20.dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                row.forEach { digit ->
+                row.forEach { (digit, letters) ->
                     ModernDialButton(
                         digit = digit,
-                        onClick = { onNumberClick(digit) }
+                        letters = letters,
+                        onClick = { onNumberClick(digit) },
+                        isDarkMode = isDarkMode
                     )
                 }
             }
@@ -306,22 +410,35 @@ fun ModernDialPad(
 }
 
 @Composable
-fun ModernDialButton(digit: String, onClick: () -> Unit) {
+fun ModernDialButton(digit: String, letters: String, onClick: () -> Unit, isDarkMode: Boolean) {
     Box(
         modifier = Modifier
-            .size(72.dp)
-            .clip(CircleShape)
-            .background(Color(0xFF1A1A2E))
-            .border(2.dp, Color(0xFF00D4FF), CircleShape)
+            .size(75.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (isDarkMode) Color(0xFF1A1A2E) else Color(0xFFE0E0E0))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = digit,
-            fontSize = 32.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = digit,
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isDarkMode) Color.White else Color.Black
+            )
+            if (letters.isNotEmpty()) {
+                Text(
+                    text = letters,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f),
+                    letterSpacing = 1.sp
+                )
+            }
+        }
     }
 }
 
@@ -400,6 +517,57 @@ fun ModernContactItem(contact: Contact, onClick: () -> Unit) {
             Icons.Rounded.Phone,
             contentDescription = "Call",
             tint = Color(0xFF00D4FF)
+        )
+    }
+}
+
+@Composable
+fun RecentCallItem(call: com.example.calltranslator.service.CallLogEntry, onClick: () -> Unit, isDarkMode: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isDarkMode) Color(0xFF00D4FF) else Color(0xFF00D4FF).copy(alpha = 0.8f)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                when (call.type) {
+                    com.example.calltranslator.service.CallType.INCOMING -> Icons.Rounded.CallReceived
+                    com.example.calltranslator.service.CallType.OUTGOING -> Icons.Rounded.CallMade
+                    else -> Icons.Rounded.PhoneMissed
+                },
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = call.name ?: call.phoneNumber,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                color = if (isDarkMode) Color.White else Color.Black
+            )
+            Text(
+                text = call.phoneNumber,
+                fontSize = 14.sp,
+                color = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+            )
+        }
+        Text(
+            text = call.date,
+            fontSize = 12.sp,
+            color = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f)
         )
     }
 }

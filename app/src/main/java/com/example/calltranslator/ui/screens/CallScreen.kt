@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
 import com.example.calltranslator.model.TranscriptMessage
 import com.example.calltranslator.ui.components.AnimatedMic
@@ -35,23 +36,50 @@ import com.example.calltranslator.viewmodel.LinguaPhoneViewModel
 import com.example.calltranslator.viewmodel.PipelineStatus
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
+    val context = LocalContext.current
+    val isDarkMode by viewModel.isDarkMode.collectAsState()
     val callState by viewModel.callState.collectAsState()
     val remoteUser by viewModel.remoteUser.collectAsState()
     val transcript by viewModel.transcript.collectAsState()
     val pipelineStatus by viewModel.pipelineStatus.collectAsState()
-    val audioLevel by viewModel.audioWaveLevel.collectAsState()
+    val audioWaveLevel by viewModel.audioWaveLevel.collectAsState()
     val isMuted by viewModel.isMuted.collectAsState()
-    val isSpeaker by viewModel.isSpeakerPhone.collectAsState()
-    var isTranslationEnabled by remember { mutableStateOf(false) }
-    var showKeypad by remember { mutableStateOf(false) }
-
+    val isSpeakerPhone by viewModel.isSpeakerPhone.collectAsState()
+    val speechSpeed by viewModel.speechSpeed.collectAsState()
+    val voiceVolume by viewModel.voiceVolume.collectAsState()
+    val activeVoiceModel by viewModel.activeVoiceModel.collectAsState()
     val myLang by viewModel.myLang.collectAsState()
     val remoteLang by viewModel.remoteLang.collectAsState()
 
+    var isTranslationEnabled by remember { mutableStateOf(false) }
+    var showKeypad by remember { mutableStateOf(false) }
+
+    // Listen to InCallService call state
+    LaunchedEffect(Unit) {
+        com.example.calltranslator.service.CallInCallService.callState.collect { state ->
+            when (state) {
+                com.example.calltranslator.service.CallInCallService.CallState.DIALING -> {
+                    viewModel.updateCallState(com.example.calltranslator.viewmodel.CallState.CONNECTING)
+                }
+                com.example.calltranslator.service.CallInCallService.CallState.ACTIVE -> {
+                    viewModel.updateCallState(com.example.calltranslator.viewmodel.CallState.CONNECTED)
+                }
+                com.example.calltranslator.service.CallInCallService.CallState.DISCONNECTED -> {
+                    viewModel.updateCallState(com.example.calltranslator.viewmodel.CallState.DISCONNECTED)
+                }
+                else -> {}
+            }
+        }
+    }
+
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+
+    // Get real call state from InCallService
+    val activeCall = com.example.calltranslator.service.CallInCallService.activeCall.collectAsState()
 
     // Scroll to bottom when transcripts grow
     LaunchedEffect(transcript.size) {
@@ -67,10 +95,16 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color(0xFF0F0F1A), Color(0xFF1A1A2E))
-                    )
+                .then(
+                    if (isDarkMode) {
+                        Modifier.background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color(0xFF0F0F1A), Color(0xFF1A1A2E))
+                            )
+                        )
+                    } else {
+                        Modifier.background(Color(0xFFF5F5F5))
+                    }
                 ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -83,17 +117,19 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { navController.popBackStack() }) {
-                    Icon(Icons.Rounded.ArrowBackIosNew, contentDescription = "Back", tint = Color.White)
+                    Icon(Icons.Rounded.ArrowBackIosNew, contentDescription = "Back", tint = if (isDarkMode) Color.White else Color.Black)
                 }
                 Text(
-                    text = when (callState) {
-                        CallState.CONNECTING -> "Connecting..."
-                        CallState.CONNECTED -> "Connected"
+                    text = when (activeCall.value?.state) {
+                        android.telecom.Call.STATE_RINGING -> "Ringing..."
+                        android.telecom.Call.STATE_DIALING -> "Dialing..."
+                        android.telecom.Call.STATE_ACTIVE -> "Connected"
+                        android.telecom.Call.STATE_DISCONNECTED -> "Ended"
                         else -> "Call"
                     },
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Color.White
+                    color = if (isDarkMode) Color.White else Color.Black
                 )
                 Spacer(modifier = Modifier.width(48.dp))
             }
@@ -121,12 +157,12 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                     text = remoteUser?.name ?: "Unknown",
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = if (isDarkMode) Color.White else Color.Black
                 )
                 Text(
                     text = remoteUser?.uid ?: "",
                     fontSize = 16.sp,
-                    color = Color.White.copy(alpha = 0.7f)
+                    color = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.6f)
                 )
             }
 
@@ -138,7 +174,7 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                         .padding(horizontal = 16.dp)
                         .height(200.dp),
                     shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E))
+                    colors = CardDefaults.cardColors(containerColor = if (isDarkMode) Color(0xFF1A1A2E) else Color.White)
                 ) {
                     Column(
                         modifier = Modifier
@@ -160,7 +196,7 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                                       else if (pipelineStatus == PipelineStatus.TRANSLATING) "Translating..."
                                       else "Ready",
                                 fontSize = 12.sp,
-                                color = Color.White.copy(alpha = 0.6f)
+                                color = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
                             )
                         }
                         Spacer(modifier = Modifier.height(8.dp))
@@ -169,7 +205,7 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                                 .weight(1f)
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF0F0F1A))
+                                .background(if (isDarkMode) Color(0xFF0F0F1A) else Color(0xFFE0E0E0))
                                 .padding(12.dp)
                         ) {
                             LazyColumn(
@@ -177,7 +213,7 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 items(transcript) { msg ->
-                                    TranslationBubbleItem(msg)
+                                    TranslationBubbleItem(msg, isDarkMode)
                                 }
                             }
                         }
@@ -204,18 +240,21 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                         icon = if (isMuted) Icons.Rounded.MicOff else Icons.Rounded.Mic,
                         label = "Mute",
                         isActive = isMuted,
+                        isDarkMode = isDarkMode,
                         onClick = { viewModel.toggleMute() }
                     )
                     CallControlButton(
                         icon = Icons.Rounded.Dialpad,
                         label = "Keypad",
                         isActive = showKeypad,
+                        isDarkMode = isDarkMode,
                         onClick = { showKeypad = !showKeypad }
                     )
                     CallControlButton(
-                        icon = if (isSpeaker) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeDown,
+                        icon = if (isSpeakerPhone) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeDown,
                         label = "Speaker",
-                        isActive = isSpeaker,
+                        isActive = isSpeakerPhone,
+                        isDarkMode = isDarkMode,
                         onClick = { viewModel.toggleSpeaker() }
                     )
                 }
@@ -231,12 +270,14 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                         icon = Icons.Rounded.Add,
                         label = "Add Call",
                         isActive = false,
+                        isDarkMode = isDarkMode,
                         onClick = { /* Add call */ }
                     )
                     CallControlButton(
                         icon = Icons.Rounded.Pause,
                         label = "Hold",
                         isActive = false,
+                        isDarkMode = isDarkMode,
                         onClick = { /* Hold */ }
                     )
                     CallControlButton(
@@ -244,6 +285,7 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                         label = "Translate",
                         isActive = isTranslationEnabled,
                         activeColor = Color(0xFF00D4FF),
+                        isDarkMode = isDarkMode,
                         onClick = { isTranslationEnabled = !isTranslationEnabled }
                     )
                 }
@@ -251,15 +293,16 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                 Spacer(modifier = Modifier.height(32.dp))
 
                 // End call button
-                IconButton(
-                    onClick = {
-                        viewModel.endCall()
-                        navController.popBackStack()
-                    },
+                Box(
                     modifier = Modifier
                         .size(72.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFF44336))
+                        .background(Color(0xFFEF4444))
+                        .clickable {
+                            activeCall.value?.disconnect()
+                            navController.popBackStack()
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.Rounded.CallEnd,
@@ -274,7 +317,7 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
 }
 
 @Composable
-fun TranslationBubbleItem(msg: TranscriptMessage) {
+fun TranslationBubbleItem(msg: TranscriptMessage, isDarkMode: Boolean) {
     val alignment = if (msg.isMe) Alignment.CenterEnd else Alignment.CenterStart
     val horizontalArrangement = if (msg.isMe) Arrangement.End else Arrangement.Start
     val bubbleShape = if (msg.isMe) {
@@ -298,21 +341,21 @@ fun TranslationBubbleItem(msg: TranscriptMessage) {
                     color = if (msg.isMe) PrimaryNeon else SecondaryNeon
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(text = msg.timestamp, fontSize = 10.sp, color = Color.Gray)
+                Text(text = msg.timestamp, fontSize = 10.sp, color = if (isDarkMode) Color.Gray else Color.Black.copy(alpha = 0.5f))
             }
             Spacer(modifier = Modifier.height(3.dp))
             Box(
                 modifier = Modifier
                     .widthIn(max = 280.dp)
                     .clip(bubbleShape)
-                    .background(if (msg.isMe) DarkSurfaceLight.copy(alpha = 0.9f) else SecondaryNeon.copy(alpha = 0.12f))
+                    .background(if (msg.isMe) (if (isDarkMode) DarkSurfaceLight.copy(alpha = 0.9f) else Color(0xFFE0E0E0)) else SecondaryNeon.copy(alpha = 0.12f))
                     .border(1.dp, if (msg.isMe) PrimaryNeon.copy(alpha = 0.2f) else SecondaryNeon.copy(alpha = 0.25f), bubbleShape)
                     .padding(14.dp)
             ) {
                 Column {
-                    Text(text = msg.originalText, fontSize = 15.sp)
+                    Text(text = msg.originalText, fontSize = 15.sp, color = if (isDarkMode) Color.White else Color.Black)
                     Spacer(modifier = Modifier.height(6.dp))
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.1f)))
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.1f)))
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Translate, contentDescription = null, tint = PrimaryNeon, modifier = Modifier.size(13.dp))
@@ -358,6 +401,7 @@ fun CallControlButton(
     label: String,
     isActive: Boolean,
     activeColor: Color = Color.White,
+    isDarkMode: Boolean = true,
     onClick: () -> Unit
 ) {
     Column(
@@ -371,14 +415,14 @@ fun CallControlButton(
             Icon(
                 icon,
                 contentDescription = label,
-                tint = if (isActive) activeColor else Color.White.copy(alpha = 0.7f),
+                tint = if (isActive) activeColor else (if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f)),
                 modifier = Modifier.size(28.dp)
             )
         }
         Text(
             text = label,
             fontSize = 12.sp,
-            color = if (isActive) activeColor else Color.White.copy(alpha = 0.7f),
+            color = if (isActive) activeColor else (if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f)),
             fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
         )
     }

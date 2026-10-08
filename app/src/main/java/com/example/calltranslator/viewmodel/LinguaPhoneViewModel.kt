@@ -1,20 +1,26 @@
 package com.example.calltranslator.viewmodel
 
 import android.content.Context
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import com.example.calltranslator.model.TranscriptMessage
+import android.content.Intent
 import com.example.calltranslator.model.UserModel
-import com.example.calltranslator.service.Contact
+import com.example.calltranslator.service.SimCard
+import com.example.calltranslator.service.TelecomCallManager
 import com.example.calltranslator.service.CallLogService
 import com.example.calltranslator.service.ContactsService
-import com.example.calltranslator.service.LanguageDetectionService
-import com.example.calltranslator.service.TranslationService
-import kotlinx.coroutines.*
+import com.example.calltranslator.service.SpeechRecognitionService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.calltranslator.model.TranscriptMessage
+import com.example.calltranslator.service.Contact
+import com.example.calltranslator.service.LanguageDetectionService
+import com.example.calltranslator.service.TextToSpeechService
+import com.example.calltranslator.service.TranslationService
+import kotlinx.coroutines.*
 
 enum class CallState { IDLE, CONNECTING, CONNECTED, WEAK_CONNECTION, RECONNECTING, DISCONNECTED }
 enum class PipelineStatus { STANDBY, LISTENING, TRANSLATING, SPEAKING }
@@ -26,6 +32,9 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
     private val translationService = TranslationService()
     private val contactsService = ContactsService(context)
     private val callLogService = CallLogService(context)
+    private val speechRecognitionService = SpeechRecognitionService(context)
+    private val textToSpeechService = TextToSpeechService(context)
+    private val telecomCallManager = TelecomCallManager(context)
 
     // Theme Mode Flow State
     private val _isDarkMode = MutableStateFlow(true)
@@ -150,44 +159,63 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
         _currentUser.value = null
     }
 
-    fun startCall(contact: UserModel) {
-        _remoteUser.value = contact
-        _callState.value = CallState.CONNECTING
-        _transcript.value = emptyList()
-
-        viewModelScope.launch {
-            delay(2000)
-            _callState.value = CallState.CONNECTED
-            injectRemoteMessage("Hello, how are you?", "Muraho, amakuru yawe?")
+    fun startCall(phoneNumber: String, simCard: SimCard? = null) {
+        val success = telecomCallManager.placeCall(phoneNumber, simCard)
+        if (success) {
+            _callState.value = CallState.CONNECTING
+            _remoteUser.value = UserModel(phoneNumber, phoneNumber, "", "English", "👤")
+            _transcript.value = emptyList()
         }
+    }
+
+    fun startCall(contact: UserModel) {
+        startCall(contact.uid)
+    }
+
+    fun getAvailableSims(): List<SimCard> {
+        return telecomCallManager.getAvailableSims()
+    }
+
+    fun requestDefaultDialerRole(): Intent? {
+        return telecomCallManager.requestDefaultDialerRole()
+    }
+
+    fun isDefaultDialer(): Boolean {
+        return telecomCallManager.isDefaultDialer()
+    }
+
+    fun updateCallState(state: CallState) {
+        _callState.value = state
     }
 
     fun toggleListening() {
         if (_pipelineStatus.value == PipelineStatus.LISTENING) {
             _pipelineStatus.value = PipelineStatus.STANDBY
+            speechRecognitionService.stopSpeechRecognition()
             audioJob?.cancel()
             _audioWaveLevel.value = 0.0f
-            
-            // Process phrase simulation automatically
-            viewModelScope.launch {
-                val phrase = "Muraho, amakuru yawe?"
-                _pipelineStatus.value = PipelineStatus.TRANSLATING
-                delay(900)
-                
-                val translation = dictionary[phrase.lowercase()]?.get(_remoteLang.value) ?: "[Translated to ${_remoteLang.value}]: $phrase"
-                injectLocalSpeech(phrase, translation)
-                
-                _pipelineStatus.value = PipelineStatus.SPEAKING
-                startWaveOscillations()
-                delay((translation.split(" ").size * 350 / _speechSpeed.value).toLong().coerceIn(1000, 3000))
-                
-                _pipelineStatus.value = PipelineStatus.STANDBY
-                _audioWaveLevel.value = 0.0f
-                audioJob?.cancel()
-            }
         } else {
             _pipelineStatus.value = PipelineStatus.LISTENING
             startWaveOscillations()
+            
+            viewModelScope.launch {
+                speechRecognitionService.startSpeechRecognition(_myLang.value).collect { recognizedText ->
+                    if (recognizedText.isNotBlank()) {
+                        _pipelineStatus.value = PipelineStatus.TRANSLATING
+                        speechRecognitionService.stopSpeechRecognition()
+                        
+                        val translation = translateText(recognizedText, _remoteLang.value, _myLang.value)
+                        injectLocalSpeech(recognizedText, translation)
+                        
+                        _pipelineStatus.value = PipelineStatus.SPEAKING
+                        textToSpeechService.speak(translation, _remoteLang.value).collect { success ->
+                            _pipelineStatus.value = PipelineStatus.STANDBY
+                            _audioWaveLevel.value = 0.0f
+                            audioJob?.cancel()
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -262,19 +290,21 @@ class LinguaPhoneViewModel(private val context: Context) : ViewModel() {
     }
 
     // Contacts
-    suspend fun loadContacts(): List<Contact> {
-        return try {
+    fun loadContacts(): List<Contact> {
+        return runBlocking {
             contactsService.getAllContacts()
-        } catch (e: Exception) {
-            emptyList()
         }
     }
 
-    suspend fun searchContacts(query: String): List<Contact> {
-        return try {
+    fun loadCallLogs(): List<com.example.calltranslator.service.CallLogEntry> {
+        return runBlocking {
+            callLogService.getRecentCalls()
+        }
+    }
+
+    fun searchContacts(query: String): List<Contact> {
+        return runBlocking {
             contactsService.searchContacts(query)
-        } catch (e: Exception) {
-            emptyList()
         }
     }
 

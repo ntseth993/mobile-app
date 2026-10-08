@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -25,17 +26,20 @@ import com.example.calltranslator.viewmodel.LinguaPhoneViewModel
 @Composable
 fun SettingsScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
     val isDarkMode by viewModel.isDarkMode.collectAsState()
+    val context = LocalContext.current
+    val isDefaultDialer by remember { mutableStateOf(viewModel.isDefaultDialer()) }
     
     var myLanguage by remember { mutableStateOf("Kinyarwanda") }
     var targetLanguage by remember { mutableStateOf("English") }
     var translationEnabled by remember { mutableStateOf(true) }
     var speechSpeed by remember { mutableStateOf(1.0f) }
     var saveHistory by remember { mutableStateOf(true) }
+    var autoAnswer by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F0F1A))
+            .background(if (isDarkMode) Color(0xFF0F0F1A) else Color(0xFFF5F5F5))
             .verticalScroll(rememberScrollState())
     ) {
         // Top bar
@@ -50,7 +54,7 @@ fun SettingsScreen(navController: NavController, viewModel: LinguaPhoneViewModel
                 text = "Settings",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = if (isDarkMode) Color.White else Color.Black
             )
         }
 
@@ -60,8 +64,34 @@ fun SettingsScreen(navController: NavController, viewModel: LinguaPhoneViewModel
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Dialer Settings
+            ModernSettingsCard(title = "Dialer", isDarkMode = isDarkMode) {
+                Column {
+                    ModernSettingItem(
+                        icon = Icons.Rounded.Phone,
+                        title = "Default Dialer",
+                        subtitle = if (viewModel.isDefaultDialer()) "Currently default" else "Not set as default",
+                        onClick = {
+                            val roleIntent = viewModel.requestDefaultDialerRole()
+                            roleIntent?.let {
+                                context.startActivity(it)
+                            }
+                        },
+                        isDarkMode = isDarkMode
+                    )
+                    ModernSwitchItem(
+                        icon = Icons.Rounded.PhoneInTalk,
+                        title = "Auto-Answer Calls",
+                        subtitle = "Automatically answer incoming calls",
+                        checked = autoAnswer,
+                        onCheckedChange = { autoAnswer = it },
+                        isDarkMode = isDarkMode
+                    )
+                }
+            }
+
             // Translation Settings
-            ModernSettingsCard(title = "Translation") {
+            ModernSettingsCard(title = "Translation", isDarkMode = isDarkMode) {
                 Column {
                     // My Language
                     var showMyLangMenu by remember { mutableStateOf(false) }
@@ -69,7 +99,8 @@ fun SettingsScreen(navController: NavController, viewModel: LinguaPhoneViewModel
                         icon = Icons.Rounded.Translate,
                         title = "My Language",
                         subtitle = myLanguage,
-                        onClick = { showMyLangMenu = true }
+                        onClick = { showMyLangMenu = true },
+                        isDarkMode = isDarkMode
                     )
                     
                     DropdownMenu(
@@ -90,7 +121,8 @@ fun SettingsScreen(navController: NavController, viewModel: LinguaPhoneViewModel
                         icon = Icons.Rounded.Language,
                         title = "Target Language",
                         subtitle = targetLanguage,
-                        onClick = { showTargetLangMenu = true }
+                        onClick = { showTargetLangMenu = true },
+                        isDarkMode = isDarkMode
                     )
                     
                     DropdownMenu(
@@ -110,13 +142,14 @@ fun SettingsScreen(navController: NavController, viewModel: LinguaPhoneViewModel
                         icon = Icons.Rounded.AutoAwesome,
                         title = "Enable Translation",
                         checked = translationEnabled,
-                        onCheckedChange = { translationEnabled = it }
+                        onCheckedChange = { translationEnabled = it },
+                        isDarkMode = isDarkMode
                     )
                 }
             }
             
             // Voice Settings
-            ModernSettingsCard(title = "Voice") {
+            ModernSettingsCard(title = "Voice", isDarkMode = isDarkMode) {
                 Column {
                     // Speech Speed
                     Row(
@@ -135,7 +168,7 @@ fun SettingsScreen(navController: NavController, viewModel: LinguaPhoneViewModel
                             )
                             Text(
                                 "Speech Speed",
-                                color = Color.White,
+                                color = if (isDarkMode) Color.White else Color.Black,
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -159,33 +192,36 @@ fun SettingsScreen(navController: NavController, viewModel: LinguaPhoneViewModel
             }
             
             // Privacy Settings
-            ModernSettingsCard(title = "Privacy") {
+            ModernSettingsCard(title = "Privacy", isDarkMode = isDarkMode) {
                 ModernSwitchItem(
                     icon = Icons.Rounded.Security,
                     title = "Save Translation History",
                     subtitle = "Store translated conversations",
                     checked = saveHistory,
-                    onCheckedChange = { saveHistory = it }
+                    onCheckedChange = { saveHistory = it },
+                    isDarkMode = isDarkMode
                 )
             }
             
             // Appearance
-            ModernSettingsCard(title = "Appearance") {
+            ModernSettingsCard(title = "Appearance", isDarkMode = isDarkMode) {
                 ModernSwitchItem(
                     icon = Icons.Rounded.DarkMode,
                     title = "Dark Mode",
                     checked = isDarkMode,
-                    onCheckedChange = { viewModel.toggleTheme() }
+                    onCheckedChange = { viewModel.toggleTheme() },
+                    isDarkMode = isDarkMode
                 )
             }
             
             // About
-            ModernSettingsCard(title = "About") {
+            ModernSettingsCard(title = "About", isDarkMode = isDarkMode) {
                 ModernSettingItem(
                     icon = Icons.Rounded.Info,
                     title = "Version",
                     subtitle = "1.0.0",
-                    onClick = { }
+                    onClick = { },
+                    isDarkMode = isDarkMode
                 )
             }
         }
@@ -193,11 +229,11 @@ fun SettingsScreen(navController: NavController, viewModel: LinguaPhoneViewModel
 }
 
 @Composable
-fun ModernSettingsCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+fun ModernSettingsCard(title: String, isDarkMode: Boolean, content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E)),
+        colors = CardDefaults.cardColors(containerColor = if (isDarkMode) Color(0xFF1A1A2E) else Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
@@ -218,7 +254,8 @@ fun ModernSettingItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    isDarkMode: Boolean
 ) {
     Row(
         modifier = Modifier
@@ -252,13 +289,13 @@ fun ModernSettingItem(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                color = Color.White,
+                color = if (isDarkMode) Color.White else Color.Black,
                 fontWeight = FontWeight.Medium,
                 fontSize = 16.sp
             )
             Text(
                 text = subtitle,
-                color = Color.White.copy(alpha = 0.6f),
+                color = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f),
                 fontSize = 14.sp
             )
         }
@@ -276,7 +313,8 @@ fun ModernSwitchItem(
     title: String,
     subtitle: String = "",
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    isDarkMode: Boolean
 ) {
     Row(
         modifier = Modifier
@@ -309,14 +347,14 @@ fun ModernSwitchItem(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                color = Color.White,
+                color = if (isDarkMode) Color.White else Color.Black,
                 fontWeight = FontWeight.Medium,
                 fontSize = 16.sp
             )
             if (subtitle.isNotEmpty()) {
                 Text(
                     text = subtitle,
-                    color = Color.White.copy(alpha = 0.6f),
+                    color = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f),
                     fontSize = 14.sp
                 )
             }
