@@ -18,19 +18,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
+import com.example.calltranslator.model.UserModel
 import com.example.calltranslator.model.TranscriptMessage
-import com.example.calltranslator.ui.components.AnimatedMic
-import com.example.calltranslator.ui.components.AnimatedSoundWave
-import com.example.calltranslator.ui.components.ConnectionIndicator
-import com.example.calltranslator.ui.theme.*
+import com.example.calltranslator.ui.navigation.Screen
 import com.example.calltranslator.viewmodel.CallState
 import com.example.calltranslator.viewmodel.LinguaPhoneViewModel
 import com.example.calltranslator.viewmodel.PipelineStatus
@@ -39,7 +36,6 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
-    val context = LocalContext.current
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     val callState by viewModel.callState.collectAsState()
     val remoteUser by viewModel.remoteUser.collectAsState()
@@ -48,29 +44,26 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
     val audioWaveLevel by viewModel.audioWaveLevel.collectAsState()
     val isMuted by viewModel.isMuted.collectAsState()
     val isSpeakerPhone by viewModel.isSpeakerPhone.collectAsState()
-    val speechSpeed by viewModel.speechSpeed.collectAsState()
-    val voiceVolume by viewModel.voiceVolume.collectAsState()
-    val activeVoiceModel by viewModel.activeVoiceModel.collectAsState()
     val myLang by viewModel.myLang.collectAsState()
     val remoteLang by viewModel.remoteLang.collectAsState()
 
-    var isTranslationEnabled by remember { mutableStateOf(false) }
+    var isTranslationEnabled by remember { mutableStateOf(true) }
     var showKeypad by remember { mutableStateOf(false) }
+    var elapsedSeconds by remember { mutableStateOf(0) }
 
-    // Listen to InCallService call state
-    LaunchedEffect(Unit) {
-        com.example.calltranslator.service.CallInCallService.callState.collect { state ->
-            when (state) {
-                com.example.calltranslator.service.CallInCallService.CallState.DIALING -> {
-                    viewModel.updateCallState(com.example.calltranslator.viewmodel.CallState.CONNECTING)
-                }
-                com.example.calltranslator.service.CallInCallService.CallState.ACTIVE -> {
-                    viewModel.updateCallState(com.example.calltranslator.viewmodel.CallState.CONNECTED)
-                }
-                com.example.calltranslator.service.CallInCallService.CallState.DISCONNECTED -> {
-                    viewModel.updateCallState(com.example.calltranslator.viewmodel.CallState.DISCONNECTED)
-                }
-                else -> {}
+    // iPhone colors
+    val iPhoneDark = Color(0xFF000000)
+    val iPhoneGray = Color(0xFF1C1C1E)
+    val iPhoneGrayLight = Color(0xFF2C2C2E)
+    val iPhoneGreen = Color(0xFF34C759)
+    val iPhoneRed = Color(0xFFFF3B30)
+    val iPhoneBlue = Color(0xFF0A84FF)
+
+    LaunchedEffect(callState) {
+        if (callState == CallState.CONNECTED) {
+            while (true) {
+                kotlinx.coroutines.delay(1000)
+                elapsedSeconds++
             }
         }
     }
@@ -78,10 +71,8 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // Get real call state from InCallService
     val activeCall = com.example.calltranslator.service.CallInCallService.activeCall.collectAsState()
 
-    // Scroll to bottom when transcripts grow
     LaunchedEffect(transcript.size) {
         if (transcript.isNotEmpty()) {
             scope.launch {
@@ -90,91 +81,135 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
         }
     }
 
-    Scaffold { paddingValues ->
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(iPhoneDark)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .then(
-                    if (isDarkMode) {
-                        Modifier.background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color(0xFF0F0F1A), Color(0xFF1A1A2E))
-                            )
-                        )
-                    } else {
-                        Modifier.background(Color(0xFFF5F5F5))
-                    }
-                ),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(top = 8.dp, bottom = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Header
+            // Top header with close button
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { navController.popBackStack() }) {
-                    Icon(Icons.Rounded.ArrowBackIosNew, contentDescription = "Back", tint = if (isDarkMode) Color.White else Color.Black)
+                IconButton(
+                    onClick = { navController.popBackStack() },
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = "Close",
+                        tint = iPhoneBlue,
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
+
+                Spacer(modifier = Modifier.width(1.dp))
+
                 Text(
-                    text = when (activeCall.value?.state) {
-                        android.telecom.Call.STATE_RINGING -> "Ringing..."
-                        android.telecom.Call.STATE_DIALING -> "Dialing..."
-                        android.telecom.Call.STATE_ACTIVE -> "Connected"
-                        android.telecom.Call.STATE_DISCONNECTED -> "Ended"
+                    text = when (callState) {
+                        CallState.CONNECTING -> "Connecting..."
+                        CallState.CONNECTED -> formatTimeiPhone(elapsedSeconds)
+                        CallState.DISCONNECTED -> "Call ended"
                         else -> "Call"
                     },
                     fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = if (isDarkMode) Color.White else Color.Black
+                    fontWeight = FontWeight.Semibold,
+                    color = Color.White
                 )
-                Spacer(modifier = Modifier.width(48.dp))
+
+                Spacer(modifier = Modifier.width(1.dp))
+
+                IconButton(
+                    onClick = {
+                        activeCall.value?.disconnect()
+                        viewModel.endCall()
+                        navController.popBackStack()
+                    },
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = "End Call",
+                        tint = iPhoneRed,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
 
-            // Caller info
+            // Center section - caller info
+            Spacer(modifier = Modifier.height(16.dp))
+
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(vertical = 24.dp)
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
             ) {
+                // Caller avatar with glow
                 Box(
                     modifier = Modifier
-                        .size(120.dp)
+                        .size(96.dp)
                         .clip(CircleShape)
+                        .shadow(
+                            elevation = 24.dp,
+                            shape = CircleShape,
+                            ambientColor = iPhoneBlue.copy(alpha = 0.3f),
+                            spotColor = iPhoneBlue.copy(alpha = 0.3f)
+                        )
                         .background(
                             Brush.radialGradient(
-                                colors = listOf(Color(0xFF00D4FF), Color(0xFF0099CC))
+                                colors = listOf(iPhoneBlue, Color(0xFF0066FF))
                             )
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(remoteUser?.avatarUrl ?: "👤", fontSize = 56.sp)
+                    Text(remoteUser?.avatarUrl ?: "👤", fontSize = 48.sp)
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Caller name
                 Text(
                     text = remoteUser?.name ?: "Unknown",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isDarkMode) Color.White else Color.Black
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Light,
+                    color = Color.White
                 )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Caller number
                 Text(
                     text = remoteUser?.uid ?: "",
                     fontSize = 16.sp,
-                    color = if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.6f)
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontWeight = FontWeight.Regular
                 )
             }
 
-            // Translation panel (shown when enabled)
-            if (isTranslationEnabled) {
+            // AI Translation panel
+            if (isTranslationEnabled && transcript.isNotEmpty()) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
                         .height(200.dp),
                     shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = if (isDarkMode) Color(0xFF1A1A2E) else Color.White)
+                    colors = CardDefaults.cardColors(
+                        containerColor = iPhoneGrayLight
+                    ),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                 ) {
                     Column(
                         modifier = Modifier
@@ -183,38 +218,42 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "$myLang → $remoteLang",
+                                text = "AI Translation",
                                 fontSize = 14.sp,
-                                color = Color(0xFF00D4FF),
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Semibold,
+                                color = iPhoneBlue
                             )
                             Text(
-                                text = if (pipelineStatus == PipelineStatus.LISTENING) "Listening..." 
-                                      else if (pipelineStatus == PipelineStatus.TRANSLATING) "Translating..."
-                                      else "Ready",
-                                fontSize = 12.sp,
-                                color = if (isDarkMode) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+                                text = when (pipelineStatus) {
+                                    PipelineStatus.LISTENING -> "🎙️ Listening"
+                                    PipelineStatus.TRANSLATING -> "🤖 Translating"
+                                    PipelineStatus.SPEAKING -> "🔊 Speaking"
+                                    else -> "⏸️ Ready"
+                                },
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White.copy(alpha = 0.7f),
+                                letterSpacing = 0.5.sp
                             )
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Box(
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        LazyColumn(
+                            state = listState,
                             modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
+                                .fillMaxSize()
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (isDarkMode) Color(0xFF0F0F1A) else Color(0xFFE0E0E0))
+                                .background(iPhoneGray.copy(alpha = 0.8f))
                                 .padding(12.dp)
                         ) {
-                            LazyColumn(
-                                state = listState,
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(transcript) { msg ->
-                                    TranslationBubbleItem(msg, isDarkMode)
-                                }
+                            items(transcript) { msg ->
+                                iPhoneTranscriptBubble(msg, iPhoneBlue)
+                                Spacer(modifier = Modifier.height(8.dp))
                             }
                         }
                     }
@@ -222,84 +261,62 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            Spacer(modifier = Modifier.weight(1f))
-
-            // Call controls - iPhone style
+            // Bottom controls
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp, vertical = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // First row: Mute, Keypad, Speaker
+                // First row of controls
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    CallControlButton(
+                    iPhoneControlButton(
                         icon = if (isMuted) Icons.Rounded.MicOff else Icons.Rounded.Mic,
                         label = "Mute",
                         isActive = isMuted,
-                        isDarkMode = isDarkMode,
                         onClick = { viewModel.toggleMute() }
                     )
-                    CallControlButton(
+                    iPhoneControlButton(
                         icon = Icons.Rounded.Dialpad,
                         label = "Keypad",
                         isActive = showKeypad,
-                        isDarkMode = isDarkMode,
                         onClick = { showKeypad = !showKeypad }
                     )
-                    CallControlButton(
+                    iPhoneControlButton(
                         icon = if (isSpeakerPhone) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeDown,
                         label = "Speaker",
                         isActive = isSpeakerPhone,
-                        isDarkMode = isDarkMode,
                         onClick = { viewModel.toggleSpeaker() }
                     )
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Second row: Add Call, Hold, Translate
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    CallControlButton(
-                        icon = Icons.Rounded.Add,
-                        label = "Add Call",
-                        isActive = false,
-                        isDarkMode = isDarkMode,
-                        onClick = { /* Add call */ }
-                    )
-                    CallControlButton(
-                        icon = Icons.Rounded.Pause,
-                        label = "Hold",
-                        isActive = false,
-                        isDarkMode = isDarkMode,
-                        onClick = { /* Hold */ }
-                    )
-                    CallControlButton(
+                    iPhoneControlButton(
                         icon = Icons.Rounded.Translate,
-                        label = "Translate",
+                        label = "AI",
                         isActive = isTranslationEnabled,
-                        activeColor = Color(0xFF00D4FF),
-                        isDarkMode = isDarkMode,
                         onClick = { isTranslationEnabled = !isTranslationEnabled }
                     )
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // End call button
+                // End call button - red and large
                 Box(
                     modifier = Modifier
-                        .size(72.dp)
+                        .size(70.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFEF4444))
+                        .shadow(
+                            elevation = 20.dp,
+                            shape = CircleShape,
+                            ambientColor = iPhoneRed.copy(alpha = 0.4f),
+                            spotColor = iPhoneRed.copy(alpha = 0.4f)
+                        )
+                        .background(iPhoneRed)
                         .clickable {
                             activeCall.value?.disconnect()
+                            viewModel.endCall()
                             navController.popBackStack()
                         },
                     contentAlignment = Alignment.Center
@@ -308,7 +325,7 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
                         Icons.Rounded.CallEnd,
                         contentDescription = "End Call",
                         tint = Color.White,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(32.dp)
                     )
                 }
             }
@@ -317,129 +334,98 @@ fun CallScreen(navController: NavController, viewModel: LinguaPhoneViewModel) {
 }
 
 @Composable
-fun TranslationBubbleItem(msg: TranscriptMessage, isDarkMode: Boolean) {
-    val alignment = if (msg.isMe) Alignment.CenterEnd else Alignment.CenterStart
-    val horizontalArrangement = if (msg.isMe) Arrangement.End else Arrangement.Start
-    val bubbleShape = if (msg.isMe) {
-        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 4.dp)
-    } else {
-        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 4.dp, bottomEnd = 20.dp)
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp, horizontal = 12.dp),
-        contentAlignment = alignment
-    ) {
-        Column(horizontalAlignment = if (msg.isMe) Alignment.End else Alignment.Start) {
-            Row(horizontalArrangement = horizontalArrangement, verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = msg.senderName,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (msg.isMe) PrimaryNeon else SecondaryNeon
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = msg.timestamp, fontSize = 10.sp, color = if (isDarkMode) Color.Gray else Color.Black.copy(alpha = 0.5f))
-            }
-            Spacer(modifier = Modifier.height(3.dp))
-            Box(
-                modifier = Modifier
-                    .widthIn(max = 280.dp)
-                    .clip(bubbleShape)
-                    .background(if (msg.isMe) (if (isDarkMode) DarkSurfaceLight.copy(alpha = 0.9f) else Color(0xFFE0E0E0)) else SecondaryNeon.copy(alpha = 0.12f))
-                    .border(1.dp, if (msg.isMe) PrimaryNeon.copy(alpha = 0.2f) else SecondaryNeon.copy(alpha = 0.25f), bubbleShape)
-                    .padding(14.dp)
-            ) {
-                Column {
-                    Text(text = msg.originalText, fontSize = 15.sp, color = if (isDarkMode) Color.White else Color.Black)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(if (isDarkMode) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.1f)))
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Translate, contentDescription = null, tint = PrimaryNeon, modifier = Modifier.size(13.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = msg.translatedText, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = PrimaryNeon)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun PipelineStatusLabel(status: PipelineStatus) {
-    val text = when (status) {
-        PipelineStatus.LISTENING -> "LISTENING..."
-        PipelineStatus.TRANSLATING -> "TRANSLATING AI PIPELINE..."
-        PipelineStatus.SPEAKING -> "SYNTHESIZING AUDIO OUTPUT..."
-        else -> "SYSTEM STANDBY"
-    }
-    val icon = when (status) {
-        PipelineStatus.LISTENING -> Icons.Rounded.GraphicEq
-        PipelineStatus.TRANSLATING -> Icons.Rounded.Psychology
-        PipelineStatus.SPEAKING -> Icons.Rounded.VolumeUp
-        else -> Icons.Rounded.CheckCircleOutline
-    }
-    val color = when (status) {
-        PipelineStatus.LISTENING -> PrimaryNeon
-        PipelineStatus.TRANSLATING -> SecondaryNeon
-        PipelineStatus.SPEAKING -> SuccessGreen
-        else -> Color.Gray
-    }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
-        Spacer(modifier = Modifier.width(6.dp))
-        Text(text = text, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = color, letterSpacing = 0.8.sp)
-    }
-}
-
-@Composable
-fun CallControlButton(
-    icon: ImageVector,
+fun iPhoneControlButton(
+    icon: androidx.compose.material.icons.Icons,
     label: String,
     isActive: Boolean,
-    activeColor: Color = Color.White,
-    isDarkMode: Boolean = true,
     onClick: () -> Unit
 ) {
+    val iPhoneGrayLight = Color(0xFF2C2C2E)
+    val iPhoneBlue = Color(0xFF0A84FF)
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.clickable { onClick() }
     ) {
-        IconButton(
-            onClick = onClick,
-            modifier = Modifier.size(56.dp)
+        Box(
+            modifier = Modifier
+                .size(54.dp)
+                .clip(CircleShape)
+                .background(iPhoneGrayLight),
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 icon,
                 contentDescription = label,
-                tint = if (isActive) activeColor else (if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f)),
-                modifier = Modifier.size(28.dp)
+                tint = if (isActive) iPhoneBlue else Color.White,
+                modifier = Modifier.size(24.dp)
             )
         }
         Text(
             text = label,
             fontSize = 12.sp,
-            color = if (isActive) activeColor else (if (isDarkMode) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f)),
-            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
+            color = if (isActive) iPhoneBlue else Color.White.copy(alpha = 0.7f),
+            fontWeight = if (isActive) FontWeight.Semibold else FontWeight.Regular
         )
     }
 }
 
 @Composable
-fun ControlOrb(icon: ImageVector, isActive: Boolean, activeColor: Color = PrimaryNeon, isLarge: Boolean = false, onTap: () -> Unit) {
-    val size = if (isLarge) 64.dp else 54.dp
+fun iPhoneTranscriptBubble(msg: TranscriptMessage, iPhoneBlue: Color) {
+    val alignment = if (msg.isMe) Alignment.CenterEnd else Alignment.CenterStart
+    val bubbleShape = if (msg.isMe) {
+        RoundedCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+    } else {
+        RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+    }
+
     Box(
-        contentAlignment = Alignment.Center,
         modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(if (isActive) activeColor.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.08f))
-            .border(1.5.dp, if (isActive) activeColor.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.1f), CircleShape)
-            .clickable { onTap() }
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        contentAlignment = alignment
     ) {
-        Icon(icon, contentDescription = null, tint = if (isActive) activeColor else Color.White, modifier = Modifier.size(if (isLarge) 32.dp else 24.dp))
+        Box(
+            modifier = Modifier
+                .widthIn(max = 260.dp)
+                .clip(bubbleShape)
+                .background(
+                    if (msg.isMe) iPhoneBlue else Color(0xFF1C1C1E)
+                )
+                .padding(12.dp)
+        ) {
+            Column {
+                Text(
+                    text = msg.originalText,
+                    fontSize = 15.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Regular
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Divider(
+                    color = Color.White.copy(alpha = 0.2f),
+                    thickness = 0.5.dp
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = msg.translatedText,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (msg.isMe) Color.White else iPhoneBlue
+                )
+            }
+        }
+    }
+}
+
+fun formatTimeiPhone(seconds: Int): String {
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    val secs = seconds % 60
+    return if (hours > 0) {
+        String.format("%02d:%02d:%02d", hours, minutes, secs)
+    } else {
+        String.format("%02d:%02d", minutes, secs)
     }
 }
